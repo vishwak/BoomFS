@@ -1,0 +1,179 @@
+
+
+class master(DistProcess):
+    
+    def setup(dataNodes_all):
+         """ 
+         funtion to set up Master
+         """
+         conn = MySQLdb.connect(host='localhost', user='root', passwd='sravan', db='mysql')
+         cursor = conn.cursor()
+         #cursor.execute("DROP TABLE IF EXISTS Files")  
+         cursor.execute('CREATE TABLE IF NOT EXISTS \
+                        Files(FileID INT PRIMARY KEY AUTO_INCREMENT,\
+                              FileName VARCHAR(255),\
+                              Chunks VARCHAR(255))')
+         #cursor.execute("DROP TABLE IF EXISTS Chunks")
+         cursor.execute('CREATE TABLE IF NOT EXISTS \
+                        Chunks(ChunkID INT,\
+                               Nodes VARCHAR(255),\
+                               Garbage INT) ')
+         #cursor.execute('DROP TABLE IF EXISTS Setup')
+         cursor.execute('CREATE TABLE IF NOT EXISTS \
+                         Setup(MaxChunkID INT)')
+         #cursor.execute('Insert into Setup values("3")')
+         res=cursor.execute('SELECT * FROM Setup')
+         if not res:
+              maxChunkID=0;
+              cursor.execute('Insert into Setup values("0")')
+         else:
+              result=cursor.fetchall()
+              for row in result:
+                   maxChunkID=int(row[0])
+         output('Master is setup')
+         chunksGarbage=[]
+         exit=False
+
+
+    def OnAppendChunkRequest(file):
+         """
+         function to handle append chunk request to a file from a client
+         """ 
+         #update file table 
+         res=cursor.execute('select Chunks from Files where\
+                             FileName="%s"' % (file))
+         if not res:       #create file if not exists
+            cursor.execute('insert into Files(FileName, Chunks)\
+                            values("%s","")'%(file)) 
+            cursor.execute('select Chunks from Files where\
+                               FileName="%s"' % (file))
+         result=cursor.fetchall()
+         #update maxChunkID
+         chunkList=[]
+         for row in result:
+             chunkList=str(row[0]).split(",")
+         if chunkList == ['']:
+             newChunks=str(maxChunkID)
+             maxChunkID=maxChunkID + 1
+         else:
+             chunkList.append(str(maxChunkID))
+             maxChunkID=maxChunkID +1
+             newChunks=",".join(chunkList) 
+         cursor.execute('UPDATE Setup SET MaxChunkID=%d' % maxChunkID)
+         result=cursor.execute('update Files \
+                        set Chunks="%s" where FileName="%s"' % \
+                        (newChunks,file))
+         if not result:
+                cursor.execute('insert into Files(FileName, Chunks) \
+                        values("%s","%s")' % (file,newChunks)) 
+        
+         #update chunk table
+         datanode1=dataNodes_all.pop() #randomly pick 2 datanodes to write chunk
+         datanode2=dataNodes_all.pop()
+         dataNodes_all.add(datanode1)
+         dataNodes_all.add(datanode2)
+         datanodeList=[datanode1,datanode2]
+         '''(ip,port)=datanode._address  
+         cursor.execute('insert into Chunks values("%s","%s",%d)' % (maxChunkID-1, port, 0))
+         '''
+         #return chunkID and list of nodes
+         send(AppendChunkResponse(maxChunkID-1,datanodeList),_source) 
+         
+
+    def OnReadFileRequest(file):
+         """ 
+         function to handle ReadFile request from a client
+         """
+         #read Chunks list from database
+         cursor.execute('SELECT Chunks FROM Files WHERE FileName="%s"' % (file))
+         result=cursor.fetchall()
+         chunkList=[]
+         for row in result:
+             chunkList= str(row[0]).split(",")
+         #send the chunk list to client
+         send(ReadFile(chunkList),_source)
+ 
+    def OnReadChunkRequest(chunkID1):
+        """
+        function to handle Read Chunk request from client
+        """
+        #read nodes list for the chunk from database
+        cursor.execute('SELECT Nodes FROM Chunks WHERE ChunkID="%s"'%(chunkID1))
+        result=cursor.fetchall()
+        nodes=[]
+        for row in result:
+             nodes=str(row[0]).split(",")
+        #send the nodes list to client
+        send(ReadChunk(nodes),_source)
+
+    def OnHeartbeat(chunkIDs):
+        """ 
+        function to handle heartbeats between datanode and master
+        """
+        chunksToBeDel=[]
+        #update chunk table
+        for chunkID in chunkIDs:
+           if str(chunkID) in chunksGarbage:
+               chunksToBeDel.append(chunkID) 
+           res=cursor.execute('SELECT Nodes FROM Chunks WHERE ChunkID="%s"'% \
+                             (chunkID))
+           nodes=[]
+           if res:
+             result=cursor.fetchall()
+             for row in result:
+               nodes=str(row[0]).split(",")       
+ 
+           if not str(_source._address[1]) in nodes:
+               nodes.append(str(_source._address[1]))
+           nodes_str=",".join(nodes) 
+           result=cursor.execute('update Chunks \
+                        set Nodes="%s" where ChunkID="%s"' % \
+                        (nodes_str,chunkID))
+           if not result:
+               cursor.execute('insert into Chunks values("%s","%s",%d)' %\
+                               (chunkID,nodes_str, 0))
+
+        #send chunkids to be deleted
+        send(DelChunks(chunksToBeDel),_source)        
+  
+
+    def OnCreateFileRequest(file):
+         """
+         function to handle create file request from client
+         """
+         #create a record in Files table
+         cursor.execute('insert into Files(FileName, Chunks)\
+                            values("%s","")'%(file))
+         #send confirmation to client
+         send(CreatedFile(file),_source)
+
+ 
+    def OnDeleteFileRequest(file):
+         """
+         function to handle delete file request from client
+         """
+         #collect garbage
+         cursor.execute('SELECT Chunks FROM Files WHERE FileName="%s"' % (file))
+         result=cursor.fetchall()
+         for row in result:
+             chunksGarbage.extend(str(row[0]).split(","))
+         
+         #del file metadata
+         cursor.execute("DELETE FROM Files WHERE FileName='%s'" %(file))
+         output("deleted metadata")
+         output("garbage %s" %(chunksGarbage)) 
+         #send confirmation to client
+         send(DeletedFile(file),_source)      
+
+
+    def OnExit():
+         exit=True
+         cursor.close()
+         conn.close()
+
+
+    def main():
+         while not exit:
+            --yeild
+ 
+
