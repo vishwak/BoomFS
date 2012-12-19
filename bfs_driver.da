@@ -1,0 +1,46 @@
+import pymysql
+pymysql.install_as_MySQLdb()
+import MySQLdb
+
+dist_source(".","bfs_master.da")
+dist_source(".","bfs_dataNode.da")
+dist_source(".","bfs_client.da")
+
+
+def main():
+     if len(sys.argv) > 1:
+          nprocs = int(sys.argv[1])
+     else:
+          nprocs = 5
+     use_channel("tcp")
+     replication_factor=3
+     ps_dataNode = createprocs(dataNode, replication_factor)
+     ps_clientAPI = createprocs(clientAPI, 1)
+     ps_master = createprocs(master,1)
+
+
+    # setup the processes
+     p=ps_dataNode.pop()
+     ps_dataNode.add(p)
+     p1=ps_clientAPI.pop()
+     p2=ps_master.pop()
+
+     files=["file1.txt","file2.txt","file3.txt"]
+     i=0
+     for p in ps_dataNode:
+         setupprocs({p}, [files[i],p2])
+         i=i+1
+
+     setupprocs({p2},[ps_dataNode])
+     setupprocs({p1},[p2,ps_dataNode])
+     ps_clientAPI.add(p1)  
+     ps_master.add(p2)
+
+    
+     # start the processes
+     startprocs(ps_dataNode)
+     startprocs(ps_master)
+     startprocs(ps_clientAPI) 
+     for p in ps_dataNode: p.join()
+     for p1 in ps_clientAPI: p1.join()
+     for p2 in ps_master: p2.join()
