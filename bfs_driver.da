@@ -8,10 +8,7 @@ dist_source(".","bfs_client.da")
 
 
 def main():
-     if len(sys.argv) > 1:
-          nprocs = int(sys.argv[1])
-     else:
-          nprocs = 5
+
      use_channel("tcp")
      replication_factor=3
      ps_dataNode = createprocs(dataNode, replication_factor)
