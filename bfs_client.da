@@ -1,0 +1,160 @@
+
+class clientAPI(DistProcess):
+
+     def setup(master,dataNodes_all):
+         """
+         function to setup client
+         """
+         datanode=None
+         datanodeList=[]
+         chunkID=-1
+         chunkList=[]
+         nodeList=[]
+         Token_appChunkResponse=False   #tokens for sequential writes and reads 
+         Token_wroteContent=False
+         Token_read=False
+         Token_readChunk=False
+         Token_readContent=False
+         Token_crt=False
+         Token_del=False
+         
+
+     def read(filename):
+         """
+         function to read a file
+         """
+         #get chunk ids from master
+         send(ReadFileRequest(filename),master)
+         await(any(Token_read for chunkList1 in received(ReadFile(chunkList1))))
+         Token_read=False
+         #get data node for each of the chunk id from master
+         #say its datanode1
+         for chunkID in chunkList:
+               #get list of datanodes for the chunk from master
+               send(ReadChunkRequest(chunkID),master)
+               await(any(Token_readChunk for nodes1 in received(ReadChunk(nodes1))))
+               Token_readChunk=False
+               #send read request to one of the datanodes
+               datanode_str=nodeList.pop() #choose one randomly
+               nodeList.append(datanode_str)
+               for datanode1 in dataNodes_all:
+                   if datanode1._address[1]==int(datanode_str):
+                       datanode=datanode1
+                       break
+               send(ReadRequest(chunkID),datanode)
+               await(any(Token_readContent for content in received(Read(content))))
+               Token_readContent=False
+
+
+     def OnRead(content):
+         """ 
+         function to handle read chunk response from data node
+         """
+         output("Read content: %s" % content)
+         Token_readContent=True
+ 
+
+     def OnReadFile(chunkList1):
+         """
+         function to handle read file response from master
+         """
+         chunkList=chunkList1
+         Token_read=True
+
+     def OnReadChunk(nodes):
+         """
+         function to handle read chunk response from master
+         """
+         nodeList=nodes
+         Token_readChunk=True
+
+
+     def append(content, filename):
+         """
+         function to append a chunk content to a file
+         """
+         #get chunk id, list of nodes from master
+         send(AppendChunkRequest(filename),master)
+         await(any(Token_appChunkResponse for (chunkID1,datanode1) in received(AppendChunkResponse(chunkID1,datanode1))))   
+         Token_appChunkResponse=False
+         #send write request to the data nodes
+         for datanode in datanodeList:
+              send(WriteRequest(chunkID,content),datanode)
+              await(any(Token_wroteContent for content in received(Wrote(content))))
+              Token_wroteContent=False 
+ 
+
+     def OnWrote(content):
+         """
+         function to handle wrote content response from datanode
+         """
+         output("Written content: %s" %(content))
+         Token_wroteContent=True
+     
+     def create(file):
+         """
+         function to create a file
+         """
+         #send create file request to the master
+         send(CreateFileRequest(file),master)
+         await(any(Token_crt for fileName in received(CreatedFile(fileName))))
+         Token_crt=False
+
+   
+     def delete(file):
+         """
+         function to delete a file
+         """
+         #send delete file request to the master
+         send(DeleteFileRequest(file),master)
+         await(any(Token_del for fileName in received(DeletedFile(fileName))))
+         Token_del=False
+
+     def OnCreatedFile(fileName):
+         """
+         function to handle created file respose from master
+         """
+         output("Created File: %s" %(fileName))
+         Token_crt=True
+
+     def OnDeletedFile(fileName):
+         """
+         function to handle deleted file response from master
+         """
+         output("Deleted file: %s" %(fileName))
+         Token_del=True
+
+     
+
+     def main():
+         """
+         client driver program that represents and application wishing to 
+         do file operations on the file system
+         """
+         #create("c")
+         append("first chunk in c","c")
+         read("c")
+         ##append("this is statement 3","a")
+         ##append("this is statement 4","b")
+         #work()
+         #--work
+         ##read("a")
+         #work() 
+         ##read("b")
+         #delete("b")
+         #work()
+         #work()
+         #closing master and datanodes once the work is done  
+         send(Exit(),dataNodes_all) 
+         send(Exit(),master)
+         #output("exit sent")
+
+     def OnAppendChunkResponse(chunkID1, datanodeList1):
+         """
+         function to handle append chunk response from the master
+         """
+         Token_appChunkResponse=True
+         datanodeList=datanodeList1
+         chunkID=chunkID1
+
+
