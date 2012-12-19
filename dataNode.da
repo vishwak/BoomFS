@@ -1,0 +1,83 @@
+
+class dataNode(DistProcess):
+
+     def setup(file,master):
+        """
+        function to set up datanode
+        """
+        dict={}    #dictionary to store active chunks
+        loadChunks(file)
+        exit=False
+        period=4   #frequency of hearbeat
+        output("Seting up datanode with file:%s" %(file))
+
+     def loadChunks(file):
+       """
+       function to load chunks into dictionary from the file
+       """
+       #read file and write into the dictionary
+       if os.path.exists(file): 
+         f=open(file,"rt")
+         while 1:
+           line=f.readline()
+           if not line:
+              break
+           line=line[:-1] #removing last char
+           (chunkID,chunkContent)= line.split(",")
+           dict[int(chunkID)]=chunkContent
+         f.close()
+         
+
+     def saveChunks(file):
+         """
+         function to save chunks from dictionary to file
+         """
+         f=open(file,"wt")
+         for k,v in dict.items():
+             f.write(str(k) + ","+ v + "\n")
+         output("written to file %s" %(file))
+         f.close()
+
+     def OnReadRequest(chunkID):
+         """ 
+         function to handle read chunk request from client
+         """
+         send(Read(dict[int(chunkID)]),_source)
+     
+     def OnWriteRequest(chunkID, content):
+         """
+         function to handle write chunk request from client
+         """
+         dict[chunkID]=content
+         send(Wrote(dict[chunkID]),_source)
+        
+
+     def OnDelChunks(chunkids):
+        """ 
+        function to handle delete chunk command from master
+        """
+        for chunkid in chunkids:
+            output("deleting chunks")
+            del dict[chunkid]
+     
+     def OnExit():
+         output("exiting datanode")
+         saveChunks(file)
+         exit=True
+
+     def main():
+          timer=0
+          while not exit:
+            --yeild
+        
+            if timer == period:       #periodically send heartbeat with chunkids
+                timer=0
+                chunkIDs=[]
+                for k,v in dict.items():
+                     chunkIDs.append(k)
+                send(Heartbeat(chunkIDs),master)
+                await(any(True for chunkids in received(DelChunks(chunkids))))
+                work()
+            timer=timer+1
+
+
